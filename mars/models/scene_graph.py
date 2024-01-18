@@ -265,6 +265,7 @@ class SceneGraphModel(Model):
         self, training_callback_attributes: TrainingCallbackAttributes
     ) -> List[TrainingCallback]:
         callbacks = []
+        # TODO whether to optimize object models here ?
         for model in [self.background_model] + list(self.object_models.values()):
             callbacks += model.get_training_callbacks(training_callback_attributes)
 

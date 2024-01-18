@@ -53,12 +53,15 @@ class MarsDataManager(VanillaDataManager):  # pylint: disable=abstract-method
         assert self.train_pixel_sampler is not None
         batch = self.train_pixel_sampler.sample(image_batch)
         ray_indices = batch["indices"]
-        ray_bundle = self.train_ray_generator(ray_indices)
+        ray_bundle: RayBundle = self.train_ray_generator(ray_indices)
 
         c = ray_indices[:, 0]  # camera indices
         y = ray_indices[:, 1]  # row indices
         x = ray_indices[:, 2]  # col indices
-        object_rays_info = self.train_dataset.metadata["obj_info"][c, y, x]
+
+        # optimize memory usage
+        object_rays_info = self.train_dataset.metadata["obj_info"][c]
+
         object_rays_info = object_rays_info.reshape(object_rays_info.shape[0], -1)
         ray_bundle.metadata["object_rays_info"] = object_rays_info.detach()
         return ray_bundle, batch
@@ -74,7 +77,10 @@ class MarsDataManager(VanillaDataManager):  # pylint: disable=abstract-method
         c = ray_indices[:, 0]  # camera indices
         y = ray_indices[:, 1]  # row indices
         x = ray_indices[:, 2]  # col indices
-        object_rays_info = self.eval_dataset.metadata["obj_info"][c, y, x]
+
+        # optimize memory usage
+        object_rays_info = self.eval_dataset.metadata["obj_info"][c]
+
         object_rays_info = object_rays_info.reshape(object_rays_info.shape[0], -1)
         ray_bundle.metadata["object_rays_info"] = object_rays_info.detach()
         return ray_bundle, batch
@@ -84,6 +90,9 @@ class MarsDataManager(VanillaDataManager):  # pylint: disable=abstract-method
             assert camera_ray_bundle.camera_indices is not None
             image_idx = int(camera_ray_bundle.camera_indices[0, 0, 0])
             object_rays_info = self.eval_dataset.metadata["obj_info"][image_idx]
+            # optimize memory usage
+            object_rays_info = object_rays_info[None, ...].repeat_interleave(camera_ray_bundle.shape[0], dim=0)
+            object_rays_info = object_rays_info[None, ...].repeat_interleave(camera_ray_bundle.shape[1], dim=0)
             camera_ray_bundle.metadata["object_rays_info"] = object_rays_info.reshape(
                 camera_ray_bundle.shape[0], camera_ray_bundle.shape[1], -1
             ).detach()

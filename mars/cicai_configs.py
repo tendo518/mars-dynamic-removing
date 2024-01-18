@@ -908,3 +908,54 @@ Ablation_no_depth = MethodSpecification(
     ),
     description="Neural Scene Graph implementation with vanilla-NeRF model for backgruond and object models.",
 )
+
+
+
+
+# -------------------------------------------------------- self use --------------------------------------------------------
+KUNYI_NVS_Mars_Recons = MethodSpecification(
+    config=TrainerConfig(
+        method_name="mars-kunyi-recons",
+        steps_per_eval_image=STEPS_PER_EVAL_IMAGE,
+        steps_per_eval_all_images=STEPS_PER_EVAL_ALL_IMAGES,
+        steps_per_save=STEPS_PER_SAVE,
+        save_only_latest_checkpoint=False,
+        max_num_iterations=MAX_NUM_ITERATIONS,
+        mixed_precision=False,
+        use_grad_scaler=True,
+        log_gradients=True,
+        pipeline=MarsPipelineConfig(
+            datamanager=MarsDataManagerConfig(
+                dataparser=MarsVKittiDataParserConfig(
+                    use_car_latents=False,
+                    use_depth=False,
+                    split_setting="reconstruction",
+                    scale_factor=0.1,
+                    # car_nerf_state_dict_path=Path("/DATA_EDS/liuty/ckpts/pretrain/car_nerf/vkitti/epoch_805.ckpt"),
+                ),
+                train_num_rays_per_batch=4096,
+                eval_num_rays_per_batch=4096,
+                camera_optimizer=CameraOptimizerConfig(mode="off"),
+            ),
+            model=SceneGraphModelConfig(
+                background_model=NerfactoModelConfig(),
+                object_model_template=NerfactoModelConfig(),
+                object_representation="class-wise",
+                object_ray_sample_strategy="remove-bg",
+            ),
+        ),
+        optimizers={
+            "background_model": {
+                "optimizer": RAdamOptimizerConfig(lr=1e-3, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=200000),
+            },
+            "object_model": {
+                "optimizer": RAdamOptimizerConfig(lr=5e-3, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=200000),
+            },
+        },
+        # viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+        vis="tensorboard",
+    ),
+    description="Neural Scene Graph implementation with vanilla-NeRF model for backgruond and object models.",
+)

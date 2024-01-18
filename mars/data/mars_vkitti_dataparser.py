@@ -233,6 +233,8 @@ def _get_scene_objects(basedir):
     print("Loading info from: " + os.path.join(basedir, "info.txt"))
     info = info.splitlines()[1:]
 
+    n_cams =  len(os.listdir(os.path.join(basedir, "frames", "rgb")))
+
     # Creates a dictionary which label and model for each track_id
     vehicles_meta = {}
 
@@ -262,7 +264,7 @@ def _get_scene_objects(basedir):
     count = 0
     for obj in object_pose[:, :2]:
         count += 1
-        if not obj[0] == f or obj[1] == c:
+        if obj[0] != f or obj[1] != c:
             f = obj[0]
             c = obj[1]
             if count > max_obj:
@@ -271,16 +273,22 @@ def _get_scene_objects(basedir):
 
     # Add to object_pose if the object is moving between the current and the next frame
     # TODO: Use if moving information to decide if an Object is static or dynamic across the whole scene!!
+    
+    # NOTE bbox[:, -1]: isMoving
     object_pose = np.column_stack((object_pose, bbox[:, -1]))
 
     # Store 2D bounding boxes of frames
     bboxes_by_frame = []
     last_frame = bbox[-1, 0].astype(np.int32)
-    for cam in range(2):
-        for i in range(last_frame + 1):
-            bbox_at_i = np.squeeze(bbox[np.argwhere(bbox[:, 0] == i), :7])
+    # NOTE fix error when argwhere only give 1 index
+    for i in range(last_frame + 1):
+        bbox_at_i = np.squeeze(bbox[np.argwhere(bbox[:, 0] == i), :7])
+        for cam in range(n_cams):  # fix hardcoded #camera 
+            if len(bbox_at_i.shape) == 1:
+                bbox_at_i = bbox_at_i[np.newaxis, :]
             bboxes_by_frame.append(bbox_at_i[np.argwhere(bbox_at_i[:, 1] == cam), 3:7])
 
+    # NOTE bboxes_by_frame: #frame, #boxinframe, #cam, #2dboxinfo
     return object_pose, vehicles_meta, max_obj, bboxes_by_frame
 
 
@@ -358,7 +366,7 @@ class MarsVKittiDataParserConfig(DataParserConfig):
     add_input_rows: int = -1
     """reshape tensor, dont change... will be refactor in the future"""
     use_depth: bool = True
-    """whether the training loop contains depth"""
+    """whether the training loop contains depth FIXME Not used"""
     split_setting: str = "reconstruction"
     use_car_latents: bool = False
     car_object_latents_path: Optional[Path] = Path("pretrain/car_nerf/latent_codes.pt")
@@ -532,6 +540,8 @@ class MarsVKittiParser(DataParser):
         # i_split = [np.sort(count[:]), count[int(0.8 * len(count)) :], count[int(0.8 * len(count)) :]]
         # i_trin, i_val, i_test = i_split
 
+        print(len(visible_objects))
+        # NOTE 这里2好像是相机数
         counts = np.arange(len(visible_objects)).reshape(2, -1)
         i_test = np.array([(idx + 1) % 4 == 0 for idx in counts[0]])
         i_test = np.concatenate((i_test, i_test))
@@ -596,8 +606,8 @@ class MarsVKittiParser(DataParser):
 
         obj_nodes_tensor = torch.from_numpy(obj_nodes)
         # obj_nodes_tensor = torch.from_numpy(obj_nodes).cuda()
-        obj_nodes_tensor = obj_nodes_tensor[:, :, None, ...].repeat_interleave(image_width, dim=2)
-        obj_nodes_tensor = obj_nodes_tensor[:, :, None, ...].repeat_interleave(image_height, dim=2)
+        # obj_nodes_tensor = obj_nodes_tensor[:, :, None, ...].repeat_interleave(image_width, dim=2)
+        # obj_nodes_tensor = obj_nodes_tensor[:, :, None, ...].repeat_interleave(image_height, dim=2)
 
         obj_size = self.max_input_objects * add_input_rows
         input_size += obj_size
@@ -606,7 +616,7 @@ class MarsVKittiParser(DataParser):
 
         # [N, H, W, ro+rd+rgb+obj_nodes*max_obj, 3]
         # with obj_nodes [(x+y+z)*max_obj + (obj_id+is_training+0)*max_obj]
-        obj_nodes_tensor = obj_nodes_tensor.permute([0, 2, 3, 1, 4]).cpu()
+        # obj_nodes_tensor = obj_nodes_tensor.permute([0, 2, 3, 1, 4]).cpu()
         # obj_nodes = np.stack([obj_nodes[i] for i in i_train], axis=0)  # train images only
         obj_info = torch.cat([obj_nodes_tensor[i : i + 1] for i in indices], dim=0)
 
@@ -616,6 +626,7 @@ class MarsVKittiParser(DataParser):
         if self.use_semantic:
             semantic_meta.filenames = [semantic_name[i] for i in indices]
         poses = poses[indices]
+        intrinsic = intrinsic[indices]
 
         if self.config.use_car_latents:
             if not self.config.car_object_latents_path.exists():
@@ -645,14 +656,18 @@ class MarsVKittiParser(DataParser):
             )
         )
 
-        focal_X = focal_Y = intrinsic[0, 2]
-
+        # focal_X = focal_Y = intrinsic[0, 2]
+        # keepdim for boardcast
+        fx = intrinsic[:, 2:3]
+        fy = intrinsic[:, 3:4]
+        cx = intrinsic[:, 4:5]
+        cy = intrinsic[:, 5:6]
         cameras = Cameras(
             camera_to_worlds=torch.from_numpy(poses[:, :3, :4]),
-            fx=focal_X,
-            fy=focal_Y,
-            cx=cx,
-            cy=cy,
+            fx=torch.from_numpy(fx),
+            fy=torch.from_numpy(fy),
+            cx=torch.from_numpy(cx),
+            cy=torch.from_numpy(cy),
             camera_type=CameraType.PERSPECTIVE,
             height=image_height,
             width=image_width,
@@ -673,6 +688,7 @@ class MarsVKittiParser(DataParser):
                 "obj_info": obj_info if len(obj_info) > 0 else None,
                 "scale_factor": self.scale_factor,
                 "semantics": semantic_meta,
+                "image_hw": (image_height, image_width),
             },
         )
 
