@@ -540,27 +540,28 @@ class MarsVKittiParser(DataParser):
         # i_split = [np.sort(count[:]), count[int(0.8 * len(count)) :], count[int(0.8 * len(count)) :]]
         # i_trin, i_val, i_test = i_split
 
-        print(len(visible_objects))
-        # NOTE 这里2好像是相机数
-        counts = np.arange(len(visible_objects)).reshape(2, -1)
+        # NOTE 这里 fix 了固定相机数
+        counts = np.arange(len(visible_objects)).reshape(n_cam, -1)
         i_test = np.array([(idx + 1) % 4 == 0 for idx in counts[0]])
-        i_test = np.concatenate((i_test, i_test))
+        # i_test = np.concatenate((i_test, i_test))
+        i_test = np.repeat(i_test, repeats=n_cam)
+   
         if self.config.split_setting == "reconstruction":
             i_train = np.ones(len(visible_objects), dtype=bool)
-        elif self.config.split_setting == "nvs-75":
-            i_train = ~i_test
-        elif self.config.split_setting == "nvs-50":
-            desired_length = np.shape(counts)[1]
-            pattern = np.array([True, True, False, False])
-            repetitions = (desired_length + len(pattern) - 1) // len(
-                pattern
-            )  # Calculate number of necessary repetitions
-            repeated_pattern = np.tile(pattern, repetitions)
-            i_train = repeated_pattern[:desired_length]  # Slice to the desired length
-            i_train = np.concatenate((i_train, i_train))
-        elif self.config.split_setting == "nvs-25":
-            i_train = np.array([idx % 4 == 0 for idx in counts[0]])
-            i_train = np.concatenate((i_train, i_train))
+        # elif self.config.split_setting == "nvs-75":
+        #     i_train = ~i_test
+        # elif self.config.split_setting == "nvs-50":
+        #     desired_length = np.shape(counts)[1]
+        #     pattern = np.array([True, True, False, False])
+        #     repetitions = (desired_length + len(pattern) - 1) // len(
+        #         pattern
+        #     )  # Calculate number of necessary repetitions
+        #     repeated_pattern = np.tile(pattern, repetitions)
+        #     i_train = repeated_pattern[:desired_length]  # Slice to the desired length
+        #     i_train = np.concatenate((i_train, i_train))
+        # elif self.config.split_setting == "nvs-25":
+        #     i_train = np.array([idx % 4 == 0 for idx in counts[0]])
+        #     i_train = np.concatenate((i_train, i_train))
         else:
             raise ValueError("No such split method")
 

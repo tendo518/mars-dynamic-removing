@@ -52,6 +52,7 @@ def _render_trajectory_video(
     seconds: float = 5.0,
     output_format: Literal["images", "video"] = "video",
     camera_type: CameraType = CameraType.PERSPECTIVE,
+    bkcg_only: bool= True
 ) -> None:
     """Helper function to create a video of the spiral trajectory.
 
@@ -109,6 +110,8 @@ def _render_trajectory_video(
         )
         with progress:
             for camera_idx in progress.track(range(cameras.size), description=""):
+                camera_ray_bundle = cameras.generate_rays(camera_indices=camera_idx)
+
                 # objdata = pipeline.datamanager.train_dataset.metadata["obj_info"][camera_idx].to(pipeline.device)
                 objdata = pipeline.datamanager.train_dataset.metadata["obj_info"][camera_idx].to(
                     pipeline.model.object_meta["obj_metadata"].device
@@ -117,7 +120,8 @@ def _render_trajectory_video(
                 obj_metadata = pipeline.datamanager.eval_dataset.metadata["obj_metadata"].to(
                     pipeline.model.object_meta["obj_metadata"].device
                 )
-                camera_ray_bundle = cameras.generate_rays(camera_indices=camera_idx)
+                objdata = objdata[None, ...].repeat_interleave(camera_ray_bundle.shape[0], dim=0)
+                objdata = objdata[None, ...].repeat_interleave(camera_ray_bundle.shape[1], dim=0)
                 camera_ray_bundle.metadata["object_rays_info"] = objdata
 
                 # camera_ray_bundle.metadata["object_rays_metadata"] = obj_metadata
@@ -141,6 +145,9 @@ def _render_trajectory_video(
                     pipeline.model.config.max_num_obj,
                     pipeline.model.config.ray_add_input_rows * 3,
                 )
+                if bkcg_only:
+                    # remove all tracking id in rendering to remove cars
+                    batch_obj_dyn[..., 4] = 0           
                 norm_sh = camera_ray_bundle.metadata["directions_norm"].shape
                 camera_ray_bundle.metadata["directions_norm"] = camera_ray_bundle.metadata["directions_norm"].reshape(
                     norm_sh[0] * norm_sh[1], norm_sh[2]
@@ -310,6 +317,8 @@ class RenderTrajectory:
     output_format: Literal["images", "video"] = "video"
     # Specifies number of rays per chunk during eval.
     eval_num_rays_per_chunk: Optional[int] = None
+    # background only
+    bkg_only: bool = True
 
     def main(self) -> None:
         """Main function."""
@@ -349,11 +358,11 @@ class RenderTrajectory:
         # else:
         #     assert_never(self.traj)
 
-        FOV = torch.tensor(([30, 26, 22]), dtype=torch.float32)
+        # FOV = torch.tensor(([30, 26, 22]), dtype=torch.float32)
         # camera_path = pipeline.datamanager.eval_dataset.cameras
         camera_path = pipeline.datamanager.train_dataset.cameras
-        render_width = int(camera_path.cx[0] * 2)
-        render_height = int(camera_path.cy[0] * 2)
+        render_width = int(camera_path.image_width[0])
+        render_height = int(camera_path.image_height[0])
         seconds = 13
         camera_type = CameraType.PERSPECTIVE
         # for i, fov in enumerate(FOV):
@@ -382,6 +391,7 @@ class RenderTrajectory:
             camera_type=camera_type,
             render_width=render_width,
             render_height=render_height,
+            bkcg_only=self.bkg_only
         )
 
 
